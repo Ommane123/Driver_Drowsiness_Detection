@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+drowsiness_logs.db
+
+# Machine Learning models (code downloads it automatically on startup)
+face_landmarker.task
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE configurations and settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
