@@ -10,6 +10,7 @@ class AudioAlarmController:
         self.current_state = "SAFE"
         self.worker_thread = None
         self.stop_event = threading.Event()
+        self.play_count = 0  # Total plays during session
         
         if os.path.exists(self.sound_path):
             self.enabled = True
@@ -54,10 +55,12 @@ class AudioAlarmController:
         elif self.current_state in ["DROWSY", "CRITICAL"]:
             # Play sound continuously in loop asynchronously
             winsound.PlaySound(self.sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+            self.play_count += 1
 
     def _warning_loop(self):
         while not self.stop_event.is_set():
             winsound.PlaySound(self.sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            self.play_count += 1
             # Sleep for 2.5 seconds, check stop_event every 100ms for fast response
             for _ in range(25):
                 if self.stop_event.is_set():

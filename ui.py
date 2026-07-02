@@ -101,6 +101,8 @@ class RealTimeGraph(ctk.CTkCanvas):
             except Exception:
                 self.create_line(mar_points, fill="#f9e2af", width=2)
 
+import io
+
 class DrowsinessApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -109,33 +111,124 @@ class DrowsinessApp(ctk.CTk):
         self.geometry("1100x680")
         self.resizable(False, False)
 
-        # Initialize detector & audio
-        self.detector = DrowsinessDetector()
-        self.audio = AudioAlarmController()
+        # Initialize session variables as None / inactive
+        self.detector = None
+        self.audio = None
+        self.capture_thread = None
+        self.stop_event = threading.Event()
+        self.stop_event.set()  # Session is initially inactive
+        self.session_photo_saved = False
+        self.session_photo_id = None
         
         # Queues and thread synchronization
         self.frame_queue = queue.Queue(maxsize=2)
-        self.stop_event = threading.Event()
         
-        # Create Layout
-        self._build_ui()
+        # Create Page Layouts
+        self._build_home_ui()
+        self._build_monitor_ui()
         
-        # Start capture thread
-        self.capture_thread = threading.Thread(target=self._camera_loop, daemon=True)
-        self.capture_thread.start()
-        
-        # Start GUI polling loop
-        self._poll_frame()
-        self._refresh_db_logs()
+        # Load and display the last driver photo on Home Page
+        self._load_and_display_last_driver_photo()
 
-    def _build_ui(self):
-        # Grid Configuration
-        self.grid_columnconfigure(0, weight=3) # Camera feed
-        self.grid_columnconfigure(1, weight=2) # Panel dashboard
+    def _build_home_ui(self):
+        self.home_frame = ctk.CTkFrame(self, fg_color="#1e1e2e")
+        self.home_frame.grid(row=0, column=0, padx=15, pady=15, sticky="nsew")
+        self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        # Inner container for home page to center content
+        self.home_container = ctk.CTkFrame(
+            self.home_frame, 
+            fg_color="#181825", 
+            corner_radius=15, 
+            border_width=1, 
+            border_color="#313244",
+            width=700,
+            height=520
+        )
+        self.home_container.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Title
+        self.home_title = ctk.CTkLabel(
+            self.home_container, 
+            text="🚗 ADAS Safety Monitor", 
+            font=("Outfit", 28, "bold"),
+            text_color="#cdd6f4"
+        )
+        self.home_title.pack(pady=(35, 10))
+
+        self.home_subtitle = ctk.CTkLabel(
+            self.home_container, 
+            text="Advanced Driver Assistance System for Drowsiness & Distraction Detection", 
+            font=("Inter", 13, "italic"),
+            text_color="#a6adc8"
+        )
+        self.home_subtitle.pack(pady=(0, 25))
+
+        # Photo Frame Card
+        self.photo_card = ctk.CTkFrame(self.home_container, fg_color="#252538", corner_radius=10, width=320, height=220)
+        self.photo_card.pack(pady=10)
+        self.photo_card.pack_propagate(False)
+
+        self.photo_header = ctk.CTkLabel(
+            self.photo_card,
+            text="LAST DRIVER SESSION",
+            font=("Outfit", 12, "bold"),
+            text_color="#89b4fa"
+        )
+        self.photo_header.pack(pady=(8, 2))
+
+        # Photo label inside the card
+        self.driver_photo_label = ctk.CTkLabel(
+            self.photo_card, 
+            text="No previous driver photo.", 
+            fg_color="#11111b",
+            corner_radius=8,
+            width=240,
+            height=160
+        )
+        self.driver_photo_label.pack(pady=(5, 10))
+
+        # Start button
+        self.start_btn = ctk.CTkButton(
+            self.home_container, 
+            text="START MONITORING SESSION", 
+            font=("Inter", 15, "bold"),
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            height=45,
+            width=280,
+            command=self._on_start_session
+        )
+        self.start_btn.pack(pady=(25, 10))
+
+        # Distractions counter
+        self.distraction_counter_lbl = ctk.CTkLabel(
+            self.home_container,
+            text="Distractions Detected: 0",
+            font=("Outfit", 15, "bold"),
+            text_color="#e74c3c"
+        )
+        self.distraction_counter_lbl.pack(pady=(0, 15))
+
+        # Disclaimer
+        self.disclaimer_lbl = ctk.CTkLabel(
+            self.home_container, 
+            text="Note: System requires camera access. Please calibrate eyes at the beginning of the session.", 
+            font=("Inter", 10),
+            text_color="#585b70"
+        )
+        self.disclaimer_lbl.pack(pady=(5, 15))
+
+    def _build_monitor_ui(self):
+        self.monitor_frame = ctk.CTkFrame(self, fg_color="transparent")
+        # Grid Configuration for monitor_frame
+        self.monitor_frame.grid_columnconfigure(0, weight=3) # Camera feed
+        self.monitor_frame.grid_columnconfigure(1, weight=2) # Panel dashboard
+        self.monitor_frame.grid_rowconfigure(0, weight=1)
+
         # Left Column Frame (Video Feed)
-        self.left_frame = ctk.CTkFrame(self, fg_color="#11111b")
+        self.left_frame = ctk.CTkFrame(self.monitor_frame, fg_color="#11111b")
         self.left_frame.grid(row=0, column=0, padx=15, pady=15, sticky="nsew")
         self.left_frame.grid_rowconfigure(1, weight=1)
         self.left_frame.grid_columnconfigure(0, weight=1)
@@ -163,7 +256,7 @@ class DrowsinessApp(ctk.CTk):
         self.camera_status.grid(row=2, column=0, pady=10)
 
         # Right Column Frame (Dashboard panel)
-        self.right_frame = ctk.CTkFrame(self, fg_color="#1e1e2e")
+        self.right_frame = ctk.CTkFrame(self.monitor_frame, fg_color="#1e1e2e")
         self.right_frame.grid(row=0, column=1, padx=15, pady=15, sticky="nsew")
         self.right_frame.grid_columnconfigure(0, weight=1)
 
@@ -258,7 +351,7 @@ class DrowsinessApp(ctk.CTk):
             font=("Inter", 12, "bold"),
             fg_color="#313244",
             hover_color="#45475a",
-            command=self.audio.test_alert
+            command=self._on_test_sound
         )
         self.test_sound_btn.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
@@ -270,79 +363,135 @@ class DrowsinessApp(ctk.CTk):
         # EAR Slider
         ctk.CTkLabel(self.sliders_frame, text="EAR Threshold:", font=("Inter", 11)).grid(row=0, column=0, padx=5, sticky="w")
         self.ear_slider = ctk.CTkSlider(self.sliders_frame, from_=0.10, to=0.35, command=self._on_ear_slider)
-        self.ear_slider.set(self.detector.ear_threshold)
         self.ear_slider.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        self.ear_val_lbl = ctk.CTkLabel(self.sliders_frame, text=f"{self.detector.ear_threshold:.2f}", font=("Inter", 11, "bold"), width=35)
+        self.ear_val_lbl = ctk.CTkLabel(self.sliders_frame, text="0.21", font=("Inter", 11, "bold"), width=35)
         self.ear_val_lbl.grid(row=0, column=2, padx=5)
 
         # MAR Slider
         ctk.CTkLabel(self.sliders_frame, text="MAR Threshold:", font=("Inter", 11)).grid(row=1, column=0, padx=5, sticky="w")
         self.mar_slider = ctk.CTkSlider(self.sliders_frame, from_=0.30, to=0.80, command=self._on_mar_slider)
-        self.mar_slider.set(self.detector.mar_threshold)
         self.mar_slider.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        self.mar_val_lbl = ctk.CTkLabel(self.sliders_frame, text=f"{self.detector.mar_threshold:.2f}", font=("Inter", 11, "bold"), width=35)
+        self.mar_val_lbl = ctk.CTkLabel(self.sliders_frame, text="0.55", font=("Inter", 11, "bold"), width=35)
         self.mar_val_lbl.grid(row=1, column=2, padx=5)
 
-        # --- PANEL SECTION 4: DATABASE LOGS VIEWER ---
-        self.logs_panel = ctk.CTkFrame(self.right_frame, fg_color="#181825", corner_radius=10)
-        self.logs_panel.grid(row=3, column=0, padx=15, pady=10, sticky="nsew")
-        
-        self.logs_title = ctk.CTkLabel(
-            self.logs_panel, 
-            text="Safety Event History (SQLite Log)", 
-            font=("Outfit", 12, "bold"),
-            text_color="#a6adc8"
+        # Exit Session Button (Wide RED button at the bottom of the settings panel)
+        self.exit_session_btn = ctk.CTkButton(
+            self.control_panel,
+            text="Exit Session",
+            font=("Inter", 12, "bold"),
+            fg_color="#e74c3c",
+            hover_color="#c0392b",
+            command=self._on_exit_session
         )
-        self.logs_title.pack(pady=4)
+        self.exit_session_btn.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-        self.logs_textbox = ctk.CTkTextbox(
-            self.logs_panel, 
-            height=90, 
-            font=("Consolas", 10), 
-            fg_color="#11111b", 
-            text_color="#cdd6f4",
-            state="disabled"
-        )
-        self.logs_textbox.pack(fill="x", padx=10, pady=5)
+    def _on_start_session(self):
+        # 1. Switch layouts
+        self.home_frame.grid_forget()
+        self.monitor_frame.grid(row=0, column=0, padx=15, pady=15, sticky="nsew")
+
+        # 2. Reset synchronization primitives
+        self.stop_event = threading.Event()
+        self.stop_event.clear()
+        self.session_photo_saved = False
+        self.session_photo_id = None
+
+        # 3. Instantiate detector and audio controller
+        self.camera_status.configure(text="Initializing detector & camera...", text_color="#a6adc8")
+        self.detector = DrowsinessDetector()
+        self.audio = AudioAlarmController()
+
+        # 4. Synchronize GUI sliders with detector configuration
+        self.ear_slider.set(self.detector.ear_threshold)
+        self.ear_val_lbl.configure(text=f"{self.detector.ear_threshold:.2f}")
+        self.mar_slider.set(self.detector.mar_threshold)
+        self.mar_val_lbl.configure(text=f"{self.detector.mar_threshold:.2f}")
+
+        # 5. Start camera thread
+        self.capture_thread = threading.Thread(target=self._camera_loop, daemon=True)
+        self.capture_thread.start()
+
+        # 6. Start UI poll loops
+        self._poll_frame()
+
+    def _on_exit_session(self):
+        # 1. Signal camera loop to stop
+        self.stop_event.set()
+
+        # 2. Wait for camera thread to exit cleanly
+        if self.capture_thread and self.capture_thread.is_alive():
+            self.capture_thread.join(timeout=1.5)
+            self.capture_thread = None
+
+        # 3. Save distraction count to database before shutting down audio
+        play_count = self.audio.play_count if self.audio else 0
+        if self.session_photo_id is not None:
+            try:
+                database.update_driver_distractions(self.session_photo_id, play_count)
+            except Exception as e:
+                print(f"[UI ERROR] Failed to update driver distractions count: {e}")
+
+        # 4. Shutdown detector and audio alerts
+        if self.detector:
+            try:
+                self.detector.close()
+            except Exception:
+                pass
+            self.detector = None
+
+        if self.audio:
+            try:
+                self.audio.shutdown()
+            except Exception:
+                pass
+            self.audio = None
+
+        # 5. Switch layouts back to Home Page
+        self.monitor_frame.grid_forget()
+        self.home_frame.grid(row=0, column=0, padx=15, pady=15, sticky="nsew")
+
+        # 5. Reload the last driver photo (so the captured photo shows up)
+        self._load_and_display_last_driver_photo()
+
+    def _on_test_sound(self):
+        if self.audio:
+            self.audio.test_alert()
 
     def _on_ear_slider(self, val):
-        val = round(float(val), 2)
-        self.detector.ear_threshold = val
-        self.ear_val_lbl.configure(text=f"{val:.2f}")
+        if self.detector:
+            val = round(float(val), 2)
+            self.detector.ear_threshold = val
+            self.ear_val_lbl.configure(text=f"{val:.2f}")
 
     def _on_mar_slider(self, val):
-        val = round(float(val), 2)
-        self.detector.mar_threshold = val
-        self.mar_val_lbl.configure(text=f"{val:.2f}")
+        if self.detector:
+            val = round(float(val), 2)
+            self.detector.mar_threshold = val
+            self.mar_val_lbl.configure(text=f"{val:.2f}")
 
     def _on_calibrate(self):
-        self.detector.start_calibration()
-        self.calib_btn.configure(text="Calibrating...", state="disabled")
+        if self.detector:
+            self.detector.start_calibration()
+            self.calib_btn.configure(text="Calibrating...", state="disabled")
 
-    def _refresh_db_logs(self):
-        """Fetches recent events logged to SQLite and updates the textbox widget."""
+    def _load_and_display_last_driver_photo(self):
         try:
-            events = database.fetch_recent_events(limit=10)
-            self.logs_textbox.configure(state="normal")
-            self.logs_textbox.delete("1.0", tk.END)
-            
-            if not events:
-                self.logs_textbox.insert(tk.END, "No driver safety incidents logged yet.\n")
+            photo_bytes, distractions = database.fetch_last_driver_photo_and_distractions()
+            if photo_bytes:
+                pil_img = Image.open(io.BytesIO(photo_bytes))
+                self.last_driver_image = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(240, 160))
+                self.driver_photo_label.configure(image=self.last_driver_image, text="")
             else:
-                for ev in events:
-                    # id, timestamp, event_type, duration, max_risk_score
-                    # format timestamp for display (only HH:MM:SS)
-                    ts_str = ev[1].split(" ")[1] if " " in ev[1] else ev[1]
-                    self.logs_textbox.insert(
-                        tk.END, 
-                        f"[{ts_str}] {ev[2]} - Dur: {ev[3]:.1f}s | Max Risk: {ev[4]:.1f}%\n"
-                    )
-            self.logs_textbox.configure(state="disabled")
-        except Exception as e:
-            print(f"[UI ERROR] Failed to fetch SQLite database logs: {e}")
+                self.driver_photo_label.configure(image=None, text="No previous driver photo.")
             
-        # Poll database logs again in 4 seconds
-        self.after(4000, self._refresh_db_logs)
+            # Update the distraction counter label
+            if hasattr(self, 'distraction_counter_lbl'):
+                self.distraction_counter_lbl.configure(text=f"Distractions Detected: {distractions}")
+        except Exception as e:
+            print(f"[UI ERROR] Failed to load last driver photo and distractions: {e}")
+            self.driver_photo_label.configure(image=None, text="No previous driver photo.")
+            if hasattr(self, 'distraction_counter_lbl'):
+                self.distraction_counter_lbl.configure(text="Distractions Detected: 0")
 
     def _camera_loop(self):
         """Worker thread loop. Captures frames from webcam and analyzes landmarks."""
@@ -378,12 +527,25 @@ class DrowsinessApp(ctk.CTk):
                 fps_time = now
                 frame_count = 0
 
-            # Flip frame horizontally for a more natural mirror view
+            # Analyze frame metrics on the raw unflipped frame first (ensures accurate head pose coordinates)
+            results = self.detector.process_frame(frame) if self.detector else {"face_detected": False}
+            results["fps"] = current_fps
+            
+            # Flip frame horizontally (including its drawn overlays) for a natural mirror view
             frame = cv2.flip(frame, 1)
             
-            # Analyze frame metrics
-            results = self.detector.process_frame(frame)
-            results["fps"] = current_fps
+            # Capture driver's photo once when a face is first successfully detected in this session
+            if results.get("face_detected") and not self.session_photo_saved:
+                self.session_photo_saved = True
+                success, encoded_image = cv2.imencode('.jpg', frame)
+                if success:
+                    photo_bytes = encoded_image.tobytes()
+                    try:
+                        self.session_photo_id = database.save_driver_photo(photo_bytes)
+                        # Schedule updating the home screen last driver photo frame
+                        self.after(0, self._load_and_display_last_driver_photo)
+                    except Exception as e:
+                        print(f"[CAMERA ERROR] Failed to save driver photo to database: {e}")
             
             # Prepare image for Tkinter display
             # OpenCV is BGR, PIL needs RGB
@@ -406,6 +568,9 @@ class DrowsinessApp(ctk.CTk):
 
     def _poll_frame(self):
         """Main thread callback. Polls the queue for analyzed frames and updates widgets."""
+        if self.stop_event.is_set():
+            return  # Stop polling when session is inactive!
+
         try:
             while True:
                 results = self.frame_queue.get_nowait()
@@ -430,28 +595,31 @@ class DrowsinessApp(ctk.CTk):
                 )
 
                 # Update settings calibration status
-                if results["calibrating"]:
-                    pct = int(results["calibration_progress"] * 100)
-                    self.calib_btn.configure(text=f"Calibrating ({pct}%)")
-                else:
-                    self.calib_btn.configure(text="Calibrate Eyes", state="normal")
-                    # Synchronize calibration updates back to GUI sliders
-                    self.ear_slider.set(self.detector.ear_threshold)
-                    self.ear_val_lbl.configure(text=f"{self.detector.ear_threshold:.2f}")
+                if self.detector:
+                    if results["calibrating"]:
+                        pct = int(results["calibration_progress"] * 100)
+                        self.calib_btn.configure(text=f"Calibrating ({pct}%)")
+                    else:
+                        self.calib_btn.configure(text="Calibrate Eyes", state="normal")
+                        # Synchronize calibration updates back to GUI sliders
+                        self.ear_slider.set(self.detector.ear_threshold)
+                        self.ear_val_lbl.configure(text=f"{self.detector.ear_threshold:.2f}")
 
                 # Update Audio State
-                self.audio.set_state(results["state"])
+                if self.audio:
+                    self.audio.set_state(results["state"])
 
                 # Update UI Dashboard Panel Info
                 self._update_dashboard(results)
                 
                 # Update line graph canvas
-                self.graph.update_data(
-                    ear=results["ear"], 
-                    mar=results["mar"], 
-                    ear_thresh=self.detector.ear_threshold, 
-                    mar_thresh=self.detector.mar_threshold
-                )
+                if self.detector:
+                    self.graph.update_data(
+                        ear=results["ear"], 
+                        mar=results["mar"], 
+                        ear_thresh=self.detector.ear_threshold, 
+                        mar_thresh=self.detector.mar_threshold
+                    )
                 
         except queue.Empty:
             pass
@@ -497,13 +665,21 @@ class DrowsinessApp(ctk.CTk):
         print("[UI] Window closing, clean up resources...")
         self.stop_event.set()
         
+        # Wait for camera thread to exit first (prevents background thread accessing closed detector)
+        if self.capture_thread and self.capture_thread.is_alive():
+            self.capture_thread.join(timeout=1.5)
+            
         # Shutdown alerts and detector
-        self.audio.shutdown()
-        self.detector.close()
-        
-        # Wait for camera thread to exit
-        if self.capture_thread.is_alive():
-            self.capture_thread.join(timeout=1.0)
+        if self.audio:
+            try:
+                self.audio.shutdown()
+            except Exception:
+                pass
+        if self.detector:
+            try:
+                self.detector.close()
+            except Exception:
+                pass
             
         self.destroy()
         sys.exit(0)

@@ -7,6 +7,9 @@ __pycache__/
 
 # Local databases and logs
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 drowsiness_logs.db

@@ -27,7 +27,6 @@ graph TD
 - **Mouth Aspect Ratio (MAR)**: Monitors mouth opening to detect yawning.
   $$\text{MAR} = \frac{\|p_{top} - p_{bottom}\|}{3 \cdot \|p_{left} - p_{right}\|}$$
 - **Head Pose Estimation**: Uses standard 3D generic head mapping against 2D landmark locations via `cv2.solvePnP` to resolve head yaw (shaking head left/right) and pitch (head tilting down/up).
-
 ### 2. Temporal Buffering & ADAS Weighted Score
 To filter out transient noise (such as standard quick blinks), rolling frames are buffered (`collections.deque`):
 - `ear_history`: last 45 frames (~1.5s at 30fps)
@@ -48,9 +47,9 @@ Risk levels are mapped to system states:
 ## 📂 Project Structure
 
 - **`detector.py`**: Interfacing with MediaPipe Tasks API (`FaceLandmarker`). Downloads model, extracts landmarks, computes EAR/MAR/Pose, manages buffers, and resolves risk score state.
-- **`audio.py`**: Thread-safe audio alerts controller utilizing the native Windows `winsound` library.
-- **`database.py`**: Local SQLite database interface (`drowsiness_logs.db`) to record safety events.
-- **`ui.py`**: CustomTkinter desktop dashboard with threading, metric meters, interactive sliders, calibration toggles, a SQLite event viewer, and a custom canvas line graph.
+- **`audio.py`**: Thread-safe audio alerts controller utilizing the native Windows `winsound` library. Tracks total alarm beep counts.
+- **`database.py`**: Local SQLite database interface (`drowsiness_logs.db`) to record safety events and store session driver photos (capped at 5, auto-pruning the oldest).
+- **`ui.py`**: CustomTkinter desktop application containing a Home screen (with last driver's photo and session distraction count) and a main monitor page (real-time camera feed, metric sliders, calibration options, and a custom canvas line graph).
 - **`main.py`**: Desktop application launcher script.
 - **`web_app.py`**: Streamlit web-based implementation with client-side WebRTC streaming (`streamlit-webrtc`).
 - **`requirements.txt`**: Package dependencies.
@@ -73,9 +72,10 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
-- **Webcam**: Captures feed (auto-detects cameras). Annotates face landmarks and overlays a 3D coordinate compass on the nose.
+- **Home Screen**: Displays the last driver's photo and the total distractions counted from their session. Click **"Start Monitoring Session"** to open the camera and start the monitor.
+- **Webcam**: Captures feed (auto-detects cameras). Annotates face landmarks and overlays a 3D coordinate axis on the nose tip.
 - **Calibration**: Click **"Calibrate Eyes"** and look straight for 3 seconds to set a personalized EAR baseline.
-- **Settings**: Manually configure metric trigger levels using the panel sliders.
+- **Settings & Exit**: Manually configure metric trigger levels using the panel sliders. Click **"Exit Session"** to cleanly shut down the camera/detector and return to the Home page, saving your session's photo and distraction count.
 
 ### 4. Run Streamlit Portal (Web deployment)
 To start the web version locally:

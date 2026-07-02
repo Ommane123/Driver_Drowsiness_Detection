@@ -80,11 +80,11 @@ class DrowsinessDetector:
         # Head pose 3D model points (centered generic head coordinates)
         self.model_3d_points = np.array([
             (0.0, 0.0, 0.0),             # Nose tip (Landmark 1)
-            (0.0, -330.0, -65.0),        # Chin (Landmark 152)
-            (225.0, 170.0, -135.0),      # Left eye outer corner (Landmark 263) - Positive X
-            (-225.0, 170.0, -135.0),     # Right eye outer corner (Landmark 33) - Negative X
-            (150.0, -150.0, -125.0),     # Left mouth corner (Landmark 287) - Positive X
-            (-150.0, -150.0, -125.0)     # Right mouth corner (Landmark 57) - Negative X
+            (0.0, 330.0, -65.0),         # Chin (Landmark 152) - Y is positive (down)
+            (225.0, -170.0, -135.0),     # Left eye outer corner (Landmark 263) - Y is negative (up)
+            (-225.0, -170.0, -135.0),    # Right eye outer corner (Landmark 33) - Y is negative (up)
+            (150.0, 150.0, -125.0),      # Left mouth corner (Landmark 287) - Y is positive (down)
+            (-150.0, 150.0, -125.0)      # Right mouth corner (Landmark 57) - Y is positive (down)
         ], dtype=np.float32)
 
     def _euclidean_distance(self, p1, p2):
